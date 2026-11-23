@@ -2,6 +2,7 @@
   'use strict';
   const android = globalThis.CountdownAndroid;
   const desktop = globalThis.countdownHost;
+  const tauri = globalThis.__TAURI__?.core;
   if (android && typeof android.getState === 'function') {
     globalThis.countdownAppHost = {
       platform: 'android',
@@ -17,6 +18,14 @@
       getState: () => desktop.getState(),
       saveState: state => desktop.saveState(state),
       getStatus: () => desktop.getStatus(),
+    };
+  } else if (typeof tauri?.invoke === 'function') {
+    globalThis.countdownAppHost = {
+      platform: /Linux/i.test(navigator.userAgent) ? 'linux' : 'windows',
+      getState: () => tauri.invoke('get_state'),
+      saveState: state => tauri.invoke('save_state', { state }),
+      getStatus: () => tauri.invoke('get_status'),
+      quitApp: () => tauri.invoke('quit_app'),
     };
   }
 })();

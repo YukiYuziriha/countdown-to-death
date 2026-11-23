@@ -6,7 +6,7 @@
 
     <application
         android:allowBackup="false"
-        android:icon="@drawable/ic_countdown"
+        android:icon="@mipmap/ic_launcher"
         android:label="Countdown to Death"
         android:theme="@android:style/Theme.Material.NoActionBar"
         android:usesCleartextTraffic="false">
@@ -19,7 +19,7 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-        <receiver android:name=".ReminderReceiver" android:exported="false">
+        <receiver android:name=".ReminderReceiver" android:directBootAware="false" android:exported="false">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />

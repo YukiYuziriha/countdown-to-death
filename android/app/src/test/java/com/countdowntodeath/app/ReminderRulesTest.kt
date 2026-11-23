@@ -59,23 +59,43 @@ class ReminderRulesTest {
         assertTrue(Schedule.events(JSONObject("""{"profiles":[]}"""), utc).isEmpty())
     }
 
-    @Test fun lateDeliveryKeepsIntendedInstantAndDoesNotRepeatOnBackup() {
-        val all = events("""{"id":"daily","enabled":true,"repeat":"daily","time":"09:00"}""", "2027-09-02T20:00")
+    @Test fun simultaneousRemindersAreConsumedOnceAndEditsInvalidateTheOldPlan() {
+        val rules = """{"id":"first","enabled":true,"repeat":"daily","time":"09:00"},
+            {"id":"second","enabled":true,"repeat":"daily","time":"09:00"}"""
+        val all = events(rules, "2027-09-03T20:00")
         val before = AlarmPlan.calculate(all, emptyList(), instant("2027-09-02T08:00:00Z"))
-        val after = instant("2027-09-02T21:00:00Z")
-        val delivery = AlarmPlan.calculate(all, before.next, after)
-        assertEquals(listOf(instant("2027-09-02T09:00:00Z"), instant("2027-09-02T20:00:00Z")), delivery.due.map { it.at })
-        assertTrue(delivery.next.isEmpty())
-        assertTrue(AlarmPlan.calculate(all, delivery.next, after).due.isEmpty())
-        assertEquals(1, AlarmPlan.calculate(all.take(1), before.next, after).due.size)
+        val at = instant("2027-09-02T09:00:00Z")
+        val delivery = AlarmPlan.calculate(all, before.next, at.plusSeconds(300))
+        assertEquals(listOf(at, at), delivery.due.map { it.at })
+        val delivered = delivery.due.associate { it.key to it.at }
+        assertTrue(AlarmPlan.calculate(all, before.next, at, delivered).due.isEmpty())
+        assertTrue(AlarmPlan.calculate(all, emptyList(), at.minusSeconds(60), delivered).next.none { it.at == at })
+        val changed = events(rules.replaceFirst("09:00", "10:00").replace("\"second\",\"enabled\":true", "\"second\",\"enabled\":false"), "2027-09-03T20:00")
+        assertTrue(AlarmPlan.calculate(changed, before.next, at, delivered = emptyMap()).due.isEmpty())
     }
 
-    @Test fun recurringPlanOnlyReschedulesNextFutureOccurrence() {
-        val all = events("""{"id":"daily","enabled":true,"repeat":"daily","time":"09:00"}""")
+    @Test fun rebaseSkipsPastOccurrencesAndLateAlarmsNeverReplayTheBacklog() {
+        val all = events("""{"id":"daily","enabled":true,"repeat":"daily","time":"09:00"}""", "2027-09-04T20:00")
         val before = AlarmPlan.calculate(all, emptyList(), instant("2027-09-02T08:00:00Z"))
-        val after = AlarmPlan.calculate(all, before.next, instant("2027-09-04T10:00:00Z"))
-        assertEquals(instant("2027-09-02T09:00:00Z"), after.due.single().at)
-        assertEquals(instant("2027-09-05T09:00:00Z"), after.next.first { it.key == all.last().key }.at)
+        val now = instant("2027-09-04T19:30:00Z")
+        val rebase = AlarmPlan.calculate(all, emptyList(), now)
+        assertEquals(rebase, AlarmPlan.calculate(all, before.next, now))
+        assertEquals(instant("2027-09-04T20:00:00Z"), rebase.next.single().at)
+        val completion = AlarmPlan.calculate(all, rebase.next, instant("2027-09-04T20:01:00Z"))
+        assertEquals(rebase.next, completion.due)
+        assertTrue(completion.next.isEmpty())
+    }
+
+    @Test fun alarmAccessFallsBackIfDeniedOrRevokedDuringArm() {
+        fun calls(allowed: Boolean, revoked: Boolean): List<String> = buildList {
+            armOneShot(allowed, shadow = { add("shadow") }, exact = {
+                add("exact")
+                if (revoked) throw SecurityException()
+            }, inexact = { add("inexact") })
+        }
+        assertEquals(listOf("shadow", "exact"), calls(true, false))
+        assertEquals(listOf("inexact"), calls(false, false))
+        assertEquals(listOf("shadow", "exact", "inexact"), calls(true, true))
     }
 
     @Test fun notificationFormattingUsesIntendedInstantAndOneDecimalOnLastUnit() {

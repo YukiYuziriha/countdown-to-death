@@ -1,0 +1,23 @@
+[package]
+name = "countdown-to-death"
+version = "1.0.2"
+edition = "2021"
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]
+
+[build-dependencies]
+tauri-build = "2"
+
+[dependencies]
+chrono = "0.4"
+countdown-reminders = { path = "../reminders" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-notification = "2"
+tauri-plugin-single-instance = "2"
+tempfile = "3"
+
+[target.'cfg(windows)'.dependencies]
+winreg = "0.55"

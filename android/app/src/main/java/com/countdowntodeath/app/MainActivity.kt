@@ -5,12 +5,12 @@ import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.graphics.Color
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.util.Log
 import android.view.WindowInsets
 import android.webkit.JavascriptInterface
 import android.webkit.WebResourceRequest
@@ -60,7 +60,23 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
-        Reminders.refresh(this)
+        web.onResume()
+        web.resumeTimers()
+        refreshReminderStatus()
+    }
+
+    override fun onPause() {
+        web.pauseTimers()
+        web.onPause()
+        super.onPause()
+    }
+
+    private fun refreshReminderStatus() {
+        try {
+            Reminders.refresh(this)
+        } catch (error: Exception) {
+            Log.e("CountdownReminders", "Could not refresh reminders", error)
+        }
         publishStatus()
     }
 
@@ -85,7 +101,7 @@ class MainActivity : Activity() {
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == NOTIFICATION_REQUEST) publishStatus()
+        if (requestCode == NOTIFICATION_REQUEST) refreshReminderStatus()
     }
 
     private inner class CountdownBridge {
@@ -98,22 +114,27 @@ class MainActivity : Activity() {
         @JavascriptInterface
         fun getStatus(): String {
             val exact = Reminders.exactAlarmsEnabled(applicationContext)
-            return JSONObject().put("notifications", Reminders.notificationsEnabled(applicationContext))
+            val block = Reminders.notificationBlock(applicationContext)
+            return JSONObject().put("notifications", block == null)
+                .put("notificationBlock", block ?: JSONObject.NULL)
                 .put("exactAlarms", exact)
-                .put("statusText", if (exact) "Precise reminders enabled." else "Approximate reminders are scheduled; Android may deliver them late.")
                 .toString()
         }
 
         @JavascriptInterface
         fun requestNotifications() = runOnUiThread {
-            if (isDestroyed || Reminders.notificationsEnabled(this@MainActivity)) return@runOnUiThread
+            if (isDestroyed) return@runOnUiThread
+            val block = Reminders.notificationBlock(this@MainActivity) ?: return@runOnUiThread
             val asked = getPreferences(MODE_PRIVATE)
-            if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED &&
+            if (Build.VERSION.SDK_INT >= 33 && block == "permission" &&
                 (!asked.getBoolean("asked_notifications", false) || shouldShowRequestPermissionRationale(Manifest.permission.POST_NOTIFICATIONS))) {
                 asked.edit().putBoolean("asked_notifications", true).apply()
                 requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), NOTIFICATION_REQUEST)
             } else {
-                openSettings(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, packageName))
+                val settings = if (block == "channel") {
+                    Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_CHANNEL_ID, Reminders.CHANNEL_ID)
+                } else Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                openSettings(settings.putExtra(Settings.EXTRA_APP_PACKAGE, packageName))
             }
         }
 

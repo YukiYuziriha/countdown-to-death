@@ -30,7 +30,7 @@ internal object Schedule {
         }
     }
 
-    fun events(state: JSONObject, zone: ZoneId): List<Event> = buildList {
+    fun events(state: JSONObject, zone: ZoneId, includePaused: Boolean = false): List<Event> = buildList {
         val profiles = state.optJSONArray("profiles") ?: return@buildList
         for (i in 0 until profiles.length()) {
             val profile = profiles.optJSONObject(i) ?: continue
@@ -44,7 +44,7 @@ internal object Schedule {
             for (j in 0 until reminders.length()) {
                 val reminder = reminders.optJSONObject(j) ?: continue
                 val id = reminder.string("id") ?: continue
-                if (reminder.opt("enabled") == true) {
+                if (includePaused || reminder.opt("enabled") == true) {
                     add(Event(JSONArray().put(profileId).put(id).toString(), title, target, reminder, zone))
                 }
             }

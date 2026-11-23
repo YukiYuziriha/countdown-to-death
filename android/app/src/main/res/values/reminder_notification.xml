@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="reminder_neon_accent">#58EDD5</color>
+    <color name="reminder_spectral_accent">#91BEDF</color>
+    <color name="reminder_neon_panel_edge">#32796B</color>
+    <color name="reminder_spectral_panel_edge">#496F94</color>
+    <color name="reminder_panel_title">#C8D7DF</color>
+    <color name="reminder_panel_message">#F2F7FA</color>
+    <string name="reminder_notification_status">Countdown reminder</string>
+    <string name="reminder_notification_complete">Countdown complete</string>
+    <string name="reminder_notification_private">Countdown notification</string>
+</resources>

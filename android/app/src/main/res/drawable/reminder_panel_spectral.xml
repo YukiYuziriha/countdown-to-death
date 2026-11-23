@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/reminder_spectral_panel_edge" />
+    <item android:left="3dp" android:top="1dp" android:right="1dp" android:bottom="1dp">
+        <bitmap
+            android:src="@drawable/reminder_texture_spectral"
+            android:filter="false"
+            android:tileMode="repeat" />
+    </item>
+</layer-list>

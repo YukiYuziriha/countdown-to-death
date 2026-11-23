@@ -3,7 +3,7 @@ name: Desktop installers
 on:
   push:
     paths: &desktop_paths
-      - 'desktop/**'
+      - 'desktop-tauri/**'
       - 'ui-prototype.html'
       - 'prototype.css'
       - 'animated-texture.js'
@@ -11,6 +11,7 @@ on:
       - 'countdown-format.js'
       - 'app-host.js'
       - 'assets/**'
+      - 'scripts/half-cpu.py'
       - '.github/workflows/desktop.yml'
   pull_request:
     paths: *desktop_paths
@@ -28,30 +29,68 @@ jobs:
         include:
           - os: windows-2022
             label: Windows NSIS
-            target: --win nsis
+            target: x86_64-pc-windows-msvc
+            bundle: nsis
             artifact: countdown-to-death-windows-x64
             extension: exe
-          - os: ubuntu-24.04
+          # Build against the older glibc baseline that supports WebKitGTK 4.1.
+          - os: ubuntu-22.04
             label: Linux AppImage
-            target: --linux AppImage
+            target: x86_64-unknown-linux-gnu
+            bundle: appimage
             artifact: countdown-to-death-linux-x64
             extension: AppImage
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
     defaults:
       run:
-        working-directory: desktop
+        shell: bash
+    env:
+      BUNDLE_DIR: desktop-tauri/src-tauri/target/${{ matrix.target }}/release/bundle/${{ matrix.bundle }}
+      BUNDLE_EXTENSION: ${{ matrix.extension }}
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: npm
-          cache-dependency-path: desktop/package-lock.json
-      - run: npm ci
-      - run: npm test
-      - run: npm run dist -- ${{ matrix.target }} --x64
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential curl wget file pkg-config \
+            libwebkit2gtk-4.1-dev libxdo-dev libssl-dev \
+            libayatana-appindicator3-dev librsvg2-dev patchelf libfuse2
+      - name: Set up Rust
+        run: rustup default stable-${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            desktop-tauri/src-tauri -> target
+            desktop-tauri/reminders -> target
+      - name: Test native reminders
+        run: python scripts/half-cpu.py cargo test --manifest-path desktop-tauri/reminders/Cargo.toml --target ${{ matrix.target }}
+      - name: Stage web files
+        run: python desktop-tauri/scripts/stage-web.py
+      - name: Build installer
+        working-directory: desktop-tauri
+        env:
+          CARGO_TARGET_DIR: ${{ github.workspace }}/desktop-tauri/src-tauri/target
+          APPIMAGE_EXTRACT_AND_RUN: 1
+        run: python ../scripts/half-cpu.py npx --yes --package=@tauri-apps/cli@2.12.6 tauri build --ci --target ${{ matrix.target }} --bundles ${{ matrix.bundle }} -- --locked
+      - name: Check installer count
+        run: |
+          shopt -s nullglob
+          installers=("$BUNDLE_DIR"/*."$BUNDLE_EXTENSION")
+          if [[ ${#installers[@]} -ne 1 || ! -f "${installers[0]}" ]]; then
+            echo "Expected one .$BUNDLE_EXTENSION installer in $BUNDLE_DIR; found ${#installers[@]}." >&2
+            exit 1
+          fi
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
-          path: desktop/dist/*.${{ matrix.extension }}
+          path: ${{ env.BUNDLE_DIR }}/*.${{ matrix.extension }}
           if-no-files-found: error
