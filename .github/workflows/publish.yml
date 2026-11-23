@@ -1,0 +1,64 @@
+name: Publish installers
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing draft release tag
+        type: string
+        required: true
+      desktop_run:
+        description: Successful Desktop installers run ID
+        type: string
+        required: true
+      android_run:
+        description: Successful signed Android run ID
+        type: string
+        required: true
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check build provenance
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DESKTOP_RUN: ${{ inputs.desktop_run }}
+          ANDROID_RUN: ${{ inputs.android_run }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          [[ "$DESKTOP_RUN" =~ ^[0-9]+$ && "$ANDROID_RUN" =~ ^[0-9]+$ && "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          gh run view "$DESKTOP_RUN" --repo "$GITHUB_REPOSITORY" --json name,headBranch,conclusion --jq '[.name,.headBranch,.conclusion] | @tsv' | grep -Fx $'Desktop installers\tmain\tsuccess'
+          gh run view "$ANDROID_RUN" --repo "$GITHUB_REPOSITORY" --json name,headBranch,conclusion --jq '[.name,.headBranch,.conclusion] | @tsv' | grep -Fx $'Build Android APK\tmain\tsuccess'
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft | grep -Fx true
+      - uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.desktop_run }}
+          pattern: countdown-to-death-*-x64
+          path: desktop-installers
+      - uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.android_run }}
+          name: countdown-to-death-android-release
+          path: android-installer
+      - name: Attach and publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          shopt -s nullglob
+          windows=(desktop-installers/countdown-to-death-windows-x64/*.exe)
+          linux=(desktop-installers/countdown-to-death-linux-x64/*.AppImage)
+          android=(android-installer/*.apk)
+          [[ ${#windows[@]} = 1 && ${#linux[@]} = 1 && ${#android[@]} = 1 ]]
+          apk="countdown-to-death-${RELEASE_TAG#v}-android.apk"
+          cp "${android[0]}" "$apk"
+          gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --clobber -- "${windows[0]}" "${linux[0]}" "$apk"
+          gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false
