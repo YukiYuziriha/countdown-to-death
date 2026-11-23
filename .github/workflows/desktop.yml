@@ -1,0 +1,57 @@
+name: Desktop installers
+
+on:
+  push:
+    paths: &desktop_paths
+      - 'desktop/**'
+      - 'ui-prototype.html'
+      - 'prototype.css'
+      - 'animated-texture.js'
+      - 'reminder-schedule.js'
+      - 'countdown-format.js'
+      - 'app-host.js'
+      - 'assets/**'
+      - '.github/workflows/desktop.yml'
+  pull_request:
+    paths: *desktop_paths
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: Package ${{ matrix.label }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2022
+            label: Windows NSIS
+            target: --win nsis
+            artifact: countdown-to-death-windows-x64
+            extension: exe
+          - os: ubuntu-24.04
+            label: Linux AppImage
+            target: --linux AppImage
+            artifact: countdown-to-death-linux-x64
+            extension: AppImage
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run dist -- ${{ matrix.target }} --x64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: desktop/dist/*.${{ matrix.extension }}
+          if-no-files-found: error

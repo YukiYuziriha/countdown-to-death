@@ -1,0 +1,19 @@
+{
+  "name": "countdown-to-death",
+  "version": "1.0.0",
+  "description": "Personal countdowns with desktop reminders",
+  "productName": "Countdown to Death",
+  "desktopAppId": "com.countdowntodeath.desktop",
+  "author": "Countdown to Death contributors",
+  "private": true,
+  "main": "main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test",
+    "dist": "electron-builder --config electron-builder.cjs --publish never"
+  },
+  "devDependencies": {
+    "electron": "45.4.1",
+    "electron-builder": "26.18.0"
+  }
+}

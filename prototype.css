@@ -29,3 +29,15 @@ h1, h2, .number { letter-spacing: 0; }
 }
 .next-reminder { grid-template-columns: max-content minmax(0, 1fr); }
 @media (max-width: 520px) { .next-reminder { grid-template-columns: minmax(0, 1fr); } }
+
+@font-face {
+  font-family: "Silkscreen";
+  src: url("assets/Silkscreen-Regular.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+.number {
+  font-family: "Silkscreen", var(--font);
+  font-weight: 400;
+}

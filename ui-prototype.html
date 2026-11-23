@@ -8,6 +8,8 @@
 <link rel="stylesheet" href="prototype.css">
 <script src="animated-texture.js" defer></script>
 <script src="reminder-schedule.js"></script>
+<script src="countdown-format.js"></script>
+<script src="app-host.js"></script>
 </head>
 <body>
 <canvas id="theme-texture" aria-hidden="true"></canvas>
@@ -23,8 +25,7 @@ const pad=n=>String(n).padStart(2,'0');
 const local=d=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 const future=(days,hour)=>{const d=new Date();d.setDate(d.getDate()+days);d.setHours(hour,0,0,0);return local(d)};
 const units=['years','months','weeks','days','hours','minutes','seconds'];
-const sizes={weeks:604800,days:86400,hours:3600,minutes:60,seconds:1};
-const nf=new Intl.NumberFormat(undefined,{maximumFractionDigits:1});
+const {parts,remaining,formatNumber}=globalThis.countdownFormat;
 const timeFmt=new Intl.DateTimeFormat(undefined,{hour:'numeric',minute:'2-digit'});
 const targetFmt=new Intl.DateTimeFormat(undefined,{dateStyle:'medium',timeStyle:'short'});
 const weekdays=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
@@ -34,14 +35,24 @@ const fresh=()=>({autorun:true,platform:/Android/i.test(navigator.userAgent)?'an
 {id:'trip',name:'Night train to Kyoto',target:future(63,21),format:{units:['weeks','days'],decimal:false},reminders:[]},
 {id:'launch',name:'Project launch',target:future(148,12),format:{units:['days','hours'],decimal:false},reminders:[]}]});
 const key='countdown-to-death-ui-v1';
-let state;try{state=JSON.parse(localStorage.getItem(key))||fresh()}catch{state=fresh()}
+const host=globalThis.countdownAppHost;
+const emptyState=()=>({autorun:true,theme:'neon',platform:host.platform,profiles:[]});
+let state,hostStatus=null,writeQueue=Promise.resolve(),storageFailed=false;
+if(host){state=emptyState();document.title='Countdown to Death'}else{
+ try{state=JSON.parse(localStorage.getItem(key))||fresh()}catch{state=fresh()}
+}
 const themePanel=document.getElementById('themes');
 const setTheme=theme=>{
  state.theme=theme==='spectral'?'spectral':'neon';
  document.documentElement.dataset.theme=state.theme;
  themePanel.querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.theme===state.theme)));
 };
-const persist=()=>{try{localStorage.setItem(key,JSON.stringify(state))}catch{}};
+const persist=()=>{
+ if(host){
+  const snapshot=structuredClone(state);
+  writeQueue=writeQueue.then(()=>host.saveState(snapshot)).catch(()=>notify('Could not save changes to this device.'));
+ }else{try{localStorage.setItem(key,JSON.stringify(state))}catch{notify('Could not save changes to this browser.')}}
+};
 const uid=()=>globalThis.crypto?.randomUUID?.()||String(Date.now())+Math.random().toString(36).slice(2);
 const baseFormat=()=>({units:['days','hours','minutes'],decimal:false});
 let draft=null,fmtDraft=null,timer;
@@ -50,17 +61,7 @@ const btn=(action,text,classes='btn')=>`<button class="${classes}" type="button"
 const go=path=>{if(location.hash===`#${path}`)render();else location.hash=path};
 const notify=message=>{clearTimeout(timer);$('toast').textContent=message;$('toast').hidden=false;timer=setTimeout(()=>{$('toast').hidden=true},3000)};
 function confirmAction(title,body,label,action){const d=$('modal');d.innerHTML=`<form method="dialog"><h2 id="dialog-title">${esc(title)}</h2><p>${esc(body)}</p><div class="actions"><button class="btn" value="cancel" autofocus>Cancel</button><button class="btn danger" value="confirm">${esc(label)}</button></div></form>`;d.querySelector('form').onsubmit=e=>{e.preventDefault();d.close();if(e.submitter?.value==='confirm')action()};d.showModal()}
-function advance(start,unit,count){const d=new Date(start);if(unit==='years'||unit==='months'){const day=d.getDate();d.setDate(1);if(unit==='years')d.setFullYear(d.getFullYear()+count);else d.setMonth(d.getMonth()+count);const max=new Date(d.getFullYear(),d.getMonth()+1,0).getDate();d.setDate(Math.min(day,max));return d}return new Date(+d+count*sizes[unit]*1000)}
-function parts(target,fmt,now=new Date()){const end=new Date(target),chosen=fmt.units;let cursor=new Date(Math.min(+now,+end));return chosen.map((unit,index)=>{let count;
-if(unit==='years'||unit==='months'){
-count=unit==='years'?end.getFullYear()-cursor.getFullYear():(end.getFullYear()-cursor.getFullYear())*12+end.getMonth()-cursor.getMonth();
-while(count>0&&advance(cursor,unit,count)>end)count--;
-}else count=Math.floor((end-cursor)/(sizes[unit]*1000));
-const next=advance(cursor,unit,count);
-const value=fmt.decimal&&index===chosen.length-1?count+(end-next)/(advance(cursor,unit,count+1)-next):count;cursor=next;
-return {value,unit:nf.format(value)==='1'?unit.slice(0,-1):unit}})}
-const digitHTML=(target,fmt)=>parts(target,fmt).map(p=>`<div class="digit"><span class="number">${nf.format(p.value)}</span><span class="unit">${p.unit}</span></div>`).join('');
-const remaining=(target,fmt,now)=>parts(target,fmt,now).map(p=>`${nf.format(p.value)} ${p.unit}`).join(', ')+' left';
+const digitHTML=(target,fmt)=>parts(target,fmt).map(p=>`<div class="digit"><span class="number">${formatNumber(p.value)}</span><span class="unit">${p.unit}</span></div>`).join('');
 const countdown=(target,fmt)=>`<div class="digits" data-target="${esc(target)}" data-format="${esc(JSON.stringify(fmt))}">${digitHTML(target,fmt)}</div>`;
 const formatName=fmt=>fmt.units.join(' + ')+(fmt.decimal?' · 1 decimal':'');
 const status=p=>`<span class="tag${tagDone(p)?' done':''}">${tagDone(p)?'Complete':'Counting'}</span>`;
@@ -70,6 +71,7 @@ const section=(title,action='')=>`<div class="section-title"><h2>${title}</h2>${
 const crumb=(path,label)=>href(path,`← ${esc(label)}`,'crumb');
 const completionMessage='Time’s up. Countdown complete.';
 function nextReminderContent(p,now=new Date()){
+ if(hostStatus?.notifications===false)return `<strong class="next-label">Next reminder</strong><span>Notifications are off. ${href('settings','Open settings','crumb')}</span>`;
  const next=getNextCountdownReminder(p,now);
  if(!next){
   const explanation=new Date(p.target)<=now?'Countdown complete.':p.reminders.length&&!p.reminders.some(r=>r.enabled)?'All reminders are paused.':'No reminder scheduled before the target.';
@@ -83,11 +85,11 @@ const nextReminderPanel=p=>`<div class="next-reminder" data-next-profile="${esc(
 function tile(p,hero=false){const reminders=p.reminders.filter(r=>r.enabled).length;const open=href(`profile/${p.id}`,hero?'Open profile →':'Open →',hero?'btn':'crumb');
 return `<article class="${hero?'hero':'card'}"><div class="${hero?'hero-top':'card-top'}"><h2>${esc(p.name)}</h2>${status(p)}</div><p class="target">Target · ${esc(targetFmt.format(new Date(p.target)))}</p>${countdown(p.target,p.format)}<div class="${hero?'hero-bottom':'card-top'}">${open}<small>${reminders} enabled reminder${reminders===1?'':'s'}</small></div>${nextReminderPanel(p)}</article>`}
 function profiles(){const active=state.profiles.filter(p=>!tagDone(p)),complete=state.profiles.filter(tagDone);
-return wrap(heading('Profiles / Live','Your countdowns','Every profile counts down independently.',href('new',icon('plus')+' New profile','btn primary'))+
+return wrap(heading('Profiles / Live','COUNTDOWNS','Every profile counts down independently.',href('new',icon('plus')+' New profile','btn primary'))+
 (!state.profiles.length?`<div class="panel empty"><h2>No countdowns yet</h2><p class="muted">Give a date and time something to count down to.</p>${href('new','Create a profile','btn primary')}</div>`:'')+
 (active.length?tile(active[0],true):'')+(active.length>1?section(`Other countdowns (${active.length-1})`)+`<div class="grid">${active.slice(1).map(p=>tile(p)).join('')}</div>`:'')+
 (complete.length?section(`Completed (${complete.length})`)+`<div class="grid">${complete.map(p=>tile(p)).join('')}</div>`:'')+
-'<p class="foot">Interactive prototype · Changes stay in this browser · No real notifications</p>')}
+(!host?'<p class="foot">Interactive preview · Changes stay in this browser · No real notifications</p>':''))}
 function schedule(r){if(r.repeat==='once')return `Once · ${targetFmt.format(new Date(r.once))}`;const t=timeFmt.format(new Date(`2000-01-01T${r.time}`));return (r.repeat==='daily'?'Every day':r.repeat==='weekly'?`Every ${weekdays[+r.weekday]}`:`Monthly on day ${r.day}`)+` · ${t}`}
 function profile(p){return wrap(crumb('profiles','All countdowns')+heading('Profile / Live',p.name,`Target: ${targetFmt.format(new Date(p.target))} · Local time`,href(`edit/${p.id}`,'Edit profile'))+
 `<div class="hero"><div class="hero-top"><span class="eyebrow">Time remaining</span>${status(p)}</div>${countdown(p.target,p.format)}<div class="hero-bottom">${href(`format/${p.id}`,'Change display format')}<small>${esc(formatName(p.format))}</small></div></div>`+
@@ -106,7 +108,11 @@ function formatScreen(p,scope,fmt){const back=scope==='reminder'?`reminder/${p.i
 `<div class="panel"><h2>Units</h2><p class="muted">Pick one for a total, or several to show the remainder in smaller units.</p><div class="chips" role="group" aria-label="Countdown units">${units.map(u=>`<button class="chip" type="button" data-action="unit:${u}" aria-pressed="${fmt.units.includes(u)}">${u[0].toUpperCase()+u.slice(1)}</button>`).join('')}</div><label class="row choice spaced"><span><strong>Show a decimal</strong><span class="hint">Round the smallest selected unit to one decimal place.</span></span><input type="checkbox" id="decimal"${fmt.decimal?' checked':''}></label></div>
 <div class="panel"><h2>Live preview</h2>${scope==='reminder'?`<div class="notification"><div class="eyebrow">Countdown to Death</div><h3>${esc(p.name)}</h3><p id="remaining-preview" data-target="${esc(p.target)}" data-format="${esc(JSON.stringify(fmt))}">${esc(tagDone(p)?'Countdown complete':remaining(p.target,fmt))}</p></div>`:countdown(p.target,fmt)}</div>
 <div class="actions">${href(back,'Cancel')}${btn('save-format','Apply format','btn primary')}</div>`)}
-function settings(){const desktop=state.platform!=='android';return wrap(heading('System / Preferences','Settings','Preview platform-specific behavior without changing this device.')+
+function nativeSettings(){
+ const desktop=host.platform!=='android';
+ return wrap(heading('System / Preferences','Settings')+`<div class="panel"><h2>Background reminders</h2>${desktop?`<label class="row choice"><span><strong>Launch at login</strong><span class="hint">Keep reminders available after signing in.</span></span><input id="autorun" type="checkbox"${state.autorun?' checked':''}></label><div class="row"><div><h3>Closing the window</h3><p>Reminders stay active in the tray. Use Quit to exit.</p></div></div>`:''}<div class="row"><div><h3>Notifications</h3><p>${hostStatus?.notifications===true?'Enabled':hostStatus?.notifications===false?'Disabled or unavailable':'Checking device settings…'}</p></div>${!desktop&&hostStatus?.notifications===false?btn('enable-notifications','Enable notifications','btn primary'):''}</div>${desktop?'':`<div class="row"><div><h3>Precise alarms</h3><p>${hostStatus?.exactAlarms===true?'Enabled':hostStatus?.exactAlarms===false?'Off. Reminders may arrive late.':'Checking device settings…'}</p></div>${hostStatus?.exactAlarms===false?btn('enable-exact-alarms','Enable precise alarms'):''}</div>`}</div>`);
+}
+function settings(){if(host)return nativeSettings();const desktop=state.platform!=='android';return wrap(heading('System / Preferences','Settings','Preview platform-specific behavior without changing this device.')+
 `<div class="panel"><div class="row"><div><h3>Platform preview</h3><p>The same layout adapts to desktop and mobile widths.</p></div><select id="platform" aria-label="Platform preview" style="width:auto">${[['windows','Windows'],['linux','Linux'],['android','Android']].map(([k,v])=>`<option value="${k}"${state.platform===k?' selected':''}>${v}</option>`).join('')}</select></div></div>
 <div class="panel"><h2>Background reminders</h2>${desktop?`<label class="row choice"><span><strong>Launch at login</strong><span class="hint">On by default. Can be disabled here.</span></span><input id="autorun" type="checkbox"${state.autorun?' checked':''}></label><div class="row"><div><h3>Closing the window</h3><p>Reminders stay active in the system tray. Use Quit to stop them.</p></div>${btn('tray-menu','Preview tray menu')}</div>`:`<div class="row"><div><h3>Android notifications</h3><p>Scheduled reminders can appear when the app isn’t open. Android may require permission.</p></div>${btn('android-permission','Preview permission')}</div>`}</div>
 <div class="panel"><div class="row"><div><h3>Prototype data</h3><p>Restore the example countdowns and settings in this browser.</p></div>${btn('reset','Reset demo','btn danger')}</div></div>`)}
@@ -150,13 +156,33 @@ case 'preview-target':preview(p,null);break;
 case 'preview-draft':readDraft();if(rf.reportValidity())preview(p,draft);break;
 case 'unit':{const set=new Set(fmtDraft.format.units);if(set.has(value)&&set.size===1){notify('Keep at least one unit selected.');break}if(set.has(value))set.delete(value);else set.add(value);fmtDraft.format.units=units.filter(u=>set.has(u));render();$('app').querySelector(`[data-action="unit:${value}"]`)?.focus();break}
 case 'save-format':if(sub==='reminder'){draft.format=fmtDraft.format;go(`reminder/${p.id}/${draft.id||'new'}`);notify('Format applied to this draft')}else{p.format=fmtDraft.format;persist();go(`profile/${p.id}`);notify('Display format saved')}break;
+case 'enable-notifications':host?.requestNotifications();break;
+case 'enable-exact-alarms':host?.requestExactAlarms();break;
 case 'tray-menu':demoDialog('System tray menu','<div class="notification"><strong>Countdown to Death</strong><p>Open countdowns</p><p>Settings</p><p>Quit · stops desktop reminders</p></div><p>This is a visual preview, not a real tray menu.</p>');break;
 case 'android-permission':demoDialog('Allow notifications?','<p>The installed Android app would request permission to show reminders. The prototype does not request access.</p>');break;
 case 'reset':confirmAction('Reset the prototype?','Your edits will be replaced with the example countdowns.','Reset demo',()=>{state=fresh();persist();go('profiles');notify('Demo restored')});break;
 }};
 }
-themePanel.onclick=e=>{const b=e.target.closest('button');if(b){setTheme(b.dataset.theme);persist()}};
-addEventListener('hashchange',()=>{render();scrollTo(0,0)});render();
+themePanel.onclick=e=>{const b=e.target.closest('button');if(b&&ready){setTheme(b.dataset.theme);persist()}};
+let ready=!host;
+addEventListener('hashchange',()=>{if(ready){render();scrollTo(0,0)}});
+async function refreshHostStatus(){
+ if(!host)return;
+ try{hostStatus=await host.getStatus()}catch{return}
+ if(ready&&location.hash==='#settings')render();
+}
+if(host){
+ $('app').innerHTML=wrap(heading('Local data','Loading…'));
+ (async()=>{
+  try{const saved=await host.getState();if(saved&&Array.isArray(saved.profiles))state={...emptyState(),...saved,platform:host.platform}}
+  catch{storageFailed=true}
+  await refreshHostStatus();
+  if(storageFailed){$('app').innerHTML=wrap(heading('Local data','Could not load countdowns','Restart the app and try again. Your saved data hasn’t been replaced.'));return}
+  ready=true;render();
+ })();
+ addEventListener('countdown-host-status-changed',refreshHostStatus);
+ addEventListener('focus',refreshHostStatus);
+}else render();
 setInterval(()=>{const now=new Date();document.querySelectorAll('[data-next-profile]').forEach(el=>{const profile=state.profiles.find(p=>p.id===el.dataset.nextProfile);if(profile){const html=nextReminderContent(profile,now);if(el.dataset.renderedNext!==html){el.dataset.renderedNext=html;el.innerHTML=html}}});document.querySelectorAll('.digits[data-target]').forEach(el=>{const html=digitHTML(el.dataset.target,JSON.parse(el.dataset.format));if(el.innerHTML!==html)el.innerHTML=html});const p=$('remaining-preview');if(p){const text=new Date(p.dataset.target)<=new Date()?'Countdown complete':remaining(p.dataset.target,JSON.parse(p.dataset.format));if(p.textContent!==text)p.textContent=text}},1000);
 </script>
 </body>
