@@ -41,3 +41,53 @@ h1, h2, .number { letter-spacing: 0; }
   font-family: "Silkscreen", var(--font);
   font-weight: 400;
 }
+
+#theme-texture { opacity: 0.9; }
+
+@media not (forced-colors: active) {
+  @supports (appearance: none) or (-webkit-appearance: none) {
+    input[type=checkbox] {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 20px;
+      height: 20px;
+      margin: 0;
+      border: 2px solid var(--muted);
+      background: var(--rail) no-repeat center / 12px 12px;
+      cursor: pointer;
+    }
+    input[type=checkbox]:checked {
+      border-color: var(--accent);
+      background-color: var(--accent);
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' shape-rendering='crispEdges'%3E%3Cpath fill='%23071411' d='M9 1h2v4H9v2H7v2H5v2H3V9H1V5h2v2h2V5h2V3h2z'/%3E%3C/svg%3E");
+    }
+    input[type=checkbox]:enabled:hover,
+    .choice:hover input[type=checkbox]:enabled { border-color: var(--secondary); }
+    input[type=checkbox]:disabled {
+      border-color: var(--line);
+      opacity: 0.65;
+      cursor: not-allowed;
+    }
+    input[type=checkbox]:checked:disabled { background-color: var(--muted); }
+    .choice:has(input[type=checkbox]:disabled) { cursor: not-allowed; }
+  }
+
+  /* Non-auto scrollbar-color/width can override WebKit pseudo-element styling. */
+  @supports selector(::-webkit-scrollbar) {
+    ::-webkit-scrollbar { width: 12px; height: 12px; }
+    ::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: var(--rail); }
+    ::-webkit-scrollbar-thumb {
+      border: 2px solid var(--rail);
+      border-radius: 0;
+      background: var(--accent);
+    }
+    ::-webkit-scrollbar-thumb:hover { background: var(--secondary); }
+  }
+  @supports not selector(::-webkit-scrollbar) {
+    :root { scrollbar-color: var(--accent) var(--rail); }
+  }
+}
+
+@media (forced-colors: active) {
+  input[type=checkbox] { accent-color: auto; }
+}

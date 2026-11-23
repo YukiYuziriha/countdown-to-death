@@ -1,6 +1,6 @@
 {
   "name": "countdown-to-death",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Personal countdowns with desktop reminders",
   "productName": "Countdown to Death",
   "desktopAppId": "com.countdowntodeath.desktop",

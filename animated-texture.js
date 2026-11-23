@@ -67,7 +67,7 @@
       image = context.createImageData(width, height);
     }
 
-    paint(context, image, seconds, 255);
+    paint(context, image, seconds * 0.8, 255);
   }
 
   function drawSurface() {
