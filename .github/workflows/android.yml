@@ -31,8 +31,9 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.11.1'
-      - name: Install Android SDK packages
-        run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
       - name: Verify shared assets and test scheduling
         run: gradle --no-daemon :app:verifyHostedAssets :app:testDebugUnitTest :app:lintDebug
       - name: Build and verify debug APK
